@@ -1,5 +1,7 @@
 package jadx.gui.plugins;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 import java.util.SortedSet;
 
@@ -10,6 +12,7 @@ import jadx.api.JadxArgs;
 import jadx.api.JadxDecompiler;
 import jadx.api.gui.plugins.JadxGlobalGuiPlugin;
 import jadx.api.gui.plugins.JadxGuiContextExt;
+import jadx.api.plugins.events.types.ReloadSettingsWindow;
 import jadx.api.plugins.gui.JadxGuiContext;
 import jadx.api.plugins.loader.JadxPluginLoader;
 import jadx.cli.JadxAppCommon;
@@ -52,6 +55,10 @@ public class GuiPluginsManager {
 			globalPluginManager.load(new JadxExternalPluginsLoader(JadxGlobalGuiPlugin.class::isAssignableFrom));
 			SortedSet<PluginRuntime> globalPlugins = globalPluginManager.getResolvedPlugins();
 			runGlobalInit(globalPlugins);
+			if (!globalPlugins.isEmpty()) {
+				// settings window can be opened before global plugins init
+				mainWindow.events().send(ReloadSettingsWindow.INSTANCE);
+			}
 
 			if (LOG.isDebugEnabled()) {
 				LOG.debug("Initialized {} global gui plugins in {} ms",
@@ -104,6 +111,7 @@ public class GuiPluginsManager {
 	}
 
 	void runGlobalInit(SortedSet<PluginRuntime> globalPlugins) {
+		List<String> failedPlugins = new ArrayList<>();
 		for (PluginRuntime pluginRuntime : globalPlugins) {
 			try {
 				JadxGlobalGuiPlugin plugin = (JadxGlobalGuiPlugin) pluginRuntime.getPluginInstance();
@@ -114,10 +122,13 @@ public class GuiPluginsManager {
 						plugin.globalInit((JadxGuiContextExt) guiContext);
 					}
 				});
-			} catch (Exception e) {
+			} catch (Throwable e) {
 				LOG.warn("Failed to init global gui plugin: {}", pluginRuntime.getPluginId(), e);
+				failedPlugins.add(pluginRuntime.getPluginId());
 			}
 		}
+		// don't inject failed plugins into projects
+		failedPlugins.forEach(globalPluginManager::unload);
 	}
 
 	public synchronized void runGlobalUnload() {
